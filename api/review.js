@@ -7,8 +7,8 @@ import { AUDIENCES, WEAKNESSES, buildSystemPrompt, buildUserMessage, RESPONSE_SC
 import { insertRow, countRows } from "../lib/supabase.js";
 
 const TABLE = "pitch_reviews";
-const MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash-lite";
-const MAX_OUTPUT_TOKENS = 500;
+const MODEL = process.env.GEMINI_MODEL || "gemini-3.5-flash-lite";
+const MAX_OUTPUT_TOKENS = 1500; // headroom: on Gemini 3.x, thinking tokens can count toward this cap
 const PER_VISITOR_DAILY = Number(process.env.DAILY_CAP) || 5; // reviews per visitor per 24h
 const GLOBAL_DAILY = 300;      // protects the free Gemini quota
 const MIN_WORDS = 30;
@@ -20,6 +20,32 @@ function visitorHash(req) {
   const ip = String(fwd).split(",")[0].trim() || req.socket?.remoteAddress || "unknown";
   const salt = process.env.VISITOR_SALT || "green-room";
   return crypto.createHash("sha256").update(ip + salt).digest("hex").slice(0, 32);
+}
+
+// Gemini 3.x uses thinkingLevel (not thinkingBudget) and recommends default sampling.
+// If a config option is rejected (400), retry with a simpler request so the feature never hard-fails.
+async function callGemini(userText) {
+  const base = {
+    systemInstruction: { parts: [{ text: buildSystemPrompt() }] },
+    contents: [{ role: "user", parts: [{ text: userText }] }],
+  };
+  const configs = [
+    { maxOutputTokens: MAX_OUTPUT_TOKENS, responseMimeType: "application/json", responseSchema: RESPONSE_SCHEMA, thinkingConfig: { thinkingLevel: "minimal" } },
+    { maxOutputTokens: MAX_OUTPUT_TOKENS, responseMimeType: "application/json", responseSchema: RESPONSE_SCHEMA },
+    { maxOutputTokens: MAX_OUTPUT_TOKENS, responseMimeType: "application/json" },
+  ];
+  let gemRes, gem;
+  for (const generationConfig of configs) {
+    gemRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-goog-api-key": process.env.GEMINI_API_KEY },
+      body: JSON.stringify({ ...base, generationConfig }),
+    });
+    gem = await gemRes.json();
+    if (gemRes.status !== 400) break;
+    console.warn("Gemini rejected config, retrying simpler", JSON.stringify(gem?.error?.message));
+  }
+  return { gemRes, gem };
 }
 
 const norm = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
@@ -56,33 +82,18 @@ export default async function handler(req, res) {
 
     // ---- call Gemini (key lives only in Vercel env vars) ----
     const estSeconds = Math.round((wordCount / WPM) * 60);
-    const gemRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-goog-api-key": process.env.GEMINI_API_KEY },
-        body: JSON.stringify({
-          systemInstruction: { parts: [{ text: buildSystemPrompt() }] },
-          contents: [{ role: "user", parts: [{ text: buildUserMessage({ pitch, audienceLabel: AUDIENCES[audience], timeLimit, wordCount, estSeconds }) }] }],
-          generationConfig: {
-            temperature: 0.4,
-            maxOutputTokens: MAX_OUTPUT_TOKENS,
-            responseMimeType: "application/json",
-            responseSchema: RESPONSE_SCHEMA,
-            thinkingConfig: { thinkingBudget: 0 },
-          },
-        }),
-      }
-    );
-    const gem = await gemRes.json();
+    const userText = buildUserMessage({ pitch, audienceLabel: AUDIENCES[audience], timeLimit, wordCount, estSeconds });
+    const { gemRes, gem } = await callGemini(userText);
     if (!gemRes.ok) {
-      console.error("Gemini error", gem);
+      console.error("Gemini error", JSON.stringify(gem));
       return res.status(502).json({ error: "The coach is unavailable right now. Try again in a minute." });
     }
 
-    const text = gem?.candidates?.[0]?.content?.parts?.[0]?.text;
+    const parts = gem?.candidates?.[0]?.content?.parts || [];
+    const text = parts.filter((p) => p.text && !p.thought).map((p) => p.text).join("").replace(/^```(?:json)?\s*|\s*```$/g, "").trim();
     let review;
     try { review = JSON.parse(text); } catch { review = null; }
+    if (!review) console.error("Unparseable Gemini output", gem?.candidates?.[0]?.finishReason, text.slice(0, 300));
     if (!review) return res.status(502).json({ error: "The coach returned an unreadable answer. Try again." });
 
     // ---- server-side guardrails on the model output ----
