@@ -1,0 +1,8 @@
+{
+  "name": "green-room",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Green Room: rehearse your interview pitch in front of the stakeholder who matters",
+  "engines": { "node": ">=18" }
+}
