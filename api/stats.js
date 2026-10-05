@@ -22,7 +22,7 @@ export default async function handler(req, res) {
     const ranked = Object.entries(tally).sort((a, b) => b[1] - a[1]);
     const top = ranked[0] || null;
 
-    res.setHeader("Cache-Control", "s-maxage=30, stale-while-revalidate=60");
+    res.setHeader("Cache-Control", "no-store"); // always fresh, so the number updates right after a review
     return res.status(200).json({
       totalReviewed,
       weekCount: weekRows.length,
