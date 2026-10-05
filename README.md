@@ -32,8 +32,8 @@ No `npm install` is needed. The functions use only Node's built-in `fetch` and `
 ## 2. Gemini key (2 min)
 
 1. Go to aistudio.google.com → **Get API key → Create API key**.
-2. Copy it (it starts with `AIza`). This becomes `GEMINI_API_KEY`.
-3. The code uses `gemini-2.5-flash-lite` by default. If AI Studio shows a newer Flash-Lite model, put its name in the `GEMINI_MODEL` env var instead. You don't need to change any code.
+2. Copy it. This becomes `GEMINI_API_KEY`.
+3. The code uses `gemini-3.5-flash-lite` by default (2.5 Flash-Lite is retired for new keys). If AI Studio shows a newer Flash-Lite model, put its name in the `GEMINI_MODEL` env var instead. You don't need to change any code.
 
 ## 3. GitHub (5 min)
 
@@ -49,10 +49,10 @@ No `npm install` is needed. The functions use only Node's built-in `fetch` and `
 
 | Name | Value | Required |
 |---|---|---|
-| `GEMINI_API_KEY` | your `AIza...` key | yes |
+| `GEMINI_API_KEY` | your Gemini API key | yes |
 | `SUPABASE_URL` | `https://xxxx.supabase.co` | yes |
 | `SUPABASE_SERVICE_KEY` | `sb_secret_...` or `eyJ...` | yes |
-| `GEMINI_MODEL` | e.g. `gemini-2.5-flash-lite` | optional |
+| `GEMINI_MODEL` | e.g. `gemini-3.5-flash-lite` | optional |
 | `VISITOR_SALT` | any random string, e.g. `gr-7f3k9q` | optional (recommended) |
 | `DAILY_CAP` | `5` (raise to `30` while you test, then set it back) | optional |
 
@@ -64,7 +64,7 @@ No `npm install` is needed. The functions use only Node's built-in `fetch` and `
 2. Refresh the page. The "pitches reviewed" number in the hero and in the stats section should go up.
 3. In Supabase's **Table Editor**, you should see the row.
 4. Run a typical test, an edge case and three adversarial tests (a pasted resume, a prompt injection, a request to judge the person) so you have 5+ rows.
-5. Search your GitHub repo for `AIza`. You should get **no results**.
+5. Search your GitHub repo for the first 4 characters of your Gemini key. You should get **no results**.
 
 ### If something breaks
 - **"The coach is unavailable"**: check the Gemini key and model name. In Vercel, open **Logs**, find the `/api/review` request and read the `Gemini error` line.
